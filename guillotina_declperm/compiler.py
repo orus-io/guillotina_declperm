@@ -1,7 +1,7 @@
 import itertools
 
 from guillotina.api.content import PermissionMap
-from guillotina.auth.role import local_roles
+from guillotina.auth.role import global_roles, local_roles
 from guillotina.auth.users import ROOT_USER_ID
 from guillotina.event import notify
 from guillotina.events import ObjectPermissionsModifiedEvent
@@ -23,7 +23,7 @@ async def get_resources_matching(txn, match):
 
 
 def match(obj, match):
-    if obj.type_name == match.get('@type'):
+    if getattr(obj, 'type_name', None) == match.get('@type'):
         return True
     return False
 
@@ -131,7 +131,17 @@ async def apply_perms(txn, obj, rules):
     # expand those expressions with the obj and add the perms to
     # the other objects
 
+    log.debug(
+        'perms after apply: %s',
+        {k: v.get_all_cells()
+         for k, v in getattr(obj, '__acl__', {}).items()})
+    if getattr(obj, '__acl__', None) is None and not perms:
+        return
     await resetPerms(obj, perms)
+    if obj.__acl__ is not None:
+        log.debug('perms after apply: %s',
+                  {k: v.get_all_cells()
+                   for k, v in obj.__acl__.items()})
 
 
 async def resetPerms(obj, perms):
@@ -142,6 +152,7 @@ async def resetPerms(obj, perms):
 async def addPerms(obj, perms, changed=False):
     """apply some permissions. Copied almost verbatim from sharingPOST service"""
     lroles = local_roles()
+    groles = global_roles()
     if 'prinrole' not in perms and \
             'roleperm' not in perms and \
             'prinperm' not in perms:
@@ -155,11 +166,16 @@ async def addPerms(obj, perms, changed=False):
         manager = IPrincipalRoleManager(obj)
         operation = PermissionMap['prinrole'][setting]
         func = getattr(manager, operation)
-        if prinrole['role'] in lroles:
-            changed = True
-            func(prinrole['role'], prinrole['principal'])
-        else:
-            raise PreconditionFailed(obj, 'No valid local role')
+
+        if obj.type_name == 'Container' and prinrole['role'] not in groles + lroles:
+            raise PreconditionFailed(obj, 'Not a valid role: {}'.format(
+                prinrole['role']))
+        if obj.type_name != 'Container' and prinrole['role'] not in lroles:
+            raise PreconditionFailed(obj, 'Not a valid local role: {}'.format(
+                prinrole['role']))
+
+        changed = True
+        func(prinrole['role'], prinrole['principal'])
 
     for prinperm in perms.get('prinperm') or []:
         setting = prinperm['setting']
@@ -183,4 +199,4 @@ async def addPerms(obj, perms, changed=False):
 
     if changed:
         obj._p_register()  # make sure data is saved
-        await notify(ObjectPermissionsModifiedEvent(obj, perms))
+        #await notify(ObjectPermissionsModifiedEvent(obj, perms))
