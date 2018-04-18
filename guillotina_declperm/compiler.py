@@ -119,6 +119,9 @@ async def calc_perms(txn, obj, rules):
         rule['sharing'] for rule in rules if rule_match(obj, rule)
     ]
 
+    if not matching_rules:
+        return None
+
     return await compile_rules(txn, obj, matching_rules)
 
 
@@ -127,21 +130,16 @@ async def apply_perms(txn, obj, rules):
 
     perms = await calc_perms(txn, obj, rules)
 
+    if perms is None:
+        log.debug("No matching rule for %s", obj)
+        return
     # find rules of other types having expressions matching the obj
     # expand those expressions with the obj and add the perms to
     # the other objects
 
-    log.debug(
-        'perms after apply: %s',
-        {k: v.get_all_cells()
-         for k, v in getattr(obj, '__acl__', {}).items()})
     if getattr(obj, '__acl__', None) is None and not perms:
         return
     await resetPerms(obj, perms)
-    if obj.__acl__ is not None:
-        log.debug('perms after apply: %s',
-                  {k: v.get_all_cells()
-                   for k, v in obj.__acl__.items()})
 
 
 async def resetPerms(obj, perms):
