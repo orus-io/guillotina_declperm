@@ -32,6 +32,22 @@ def rule_match(obj, rule):
     return any(match(obj, m) for m in rule['match'])
 
 
+def reverse_rule_match(obj, rule):
+    for share in itertools.chain(*rule['sharing'].values()):
+        p = share.get('principal')
+        if isinstance(p, dict) and p.get('match'):
+            if match(obj, p.get('match')):
+                return True
+    return False
+
+
+def need_reverse_update(obj, rules):
+    return list(
+        itertools.chain(*[
+            rule['match'] for rule in rules if reverse_rule_match(obj, rule)
+        ]))
+
+
 async def expand_expr(txn, obj, expr):
     if isinstance(expr, list):
         r = list(
@@ -140,6 +156,7 @@ async def apply_perms(txn, obj, rules):
     if getattr(obj, '__acl__', None) is None and not perms:
         return
     await resetPerms(obj, perms)
+    log.debug("Updated perms of %s(%s)[%s]", obj.type_name, obj.id, obj._p_oid)
 
 
 async def resetPerms(obj, perms):

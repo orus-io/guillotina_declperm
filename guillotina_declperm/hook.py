@@ -6,6 +6,8 @@ from guillotina.interfaces import (IResource, IObjectAddedEvent,
                                    IObjectModifiedEvent, IObjectRemovedEvent)
 from guillotina.utils import get_current_request, navigate_to
 from guillotina.transactions import get_tm
+from guillotina.db.reader import reader
+from guillotina.db.transaction import HARD_CACHE
 
 from . import compiler
 
@@ -16,10 +18,14 @@ async def get_object_by_oid(oid, txn):
     '''
      Need to do a reverse lookup of the object to all the parents
      '''
-    result = txn._manager._hard_cache.get(oid, None)
+    result = HARD_CACHE.get(oid, None)
     if result is None:
         result = await txn._get(oid)
 
+    return await load_res(result, txn)
+
+
+async def load_res(result, txn):
     obj = reader(result)
     obj._p_jar = txn
     if result['parent_id']:
@@ -45,20 +51,38 @@ async def after_commit(success, txn, added, modified, deleted):
     if not success:
         return
 
+    rules = list(get_rules())
+
     need_update = added + modified
 
-    # TODO find objects where acls need recalc as a secondary effect of the add/mod/del)
+    reverse_update_matches = []
+    for m in chain(*[
+            compiler.need_reverse_update(obj, rules)
+            for obj in (added + modified + deleted)
+    ]):
+        if m not in reverse_update_matches:
+            reverse_update_matches.append(m)
 
     tm = get_tm()
     txn = await tm.begin()
     txn.guillotina_declperm_marker = True
 
-    rules = list(get_rules())
+    done = {}
 
     try:
         for obj in need_update:
             obj = await get_object_by_oid(obj._p_oid, txn)
             await compiler.apply_perms(txn, obj, rules)
+            done[obj._p_oid] = obj
+
+        for match in reverse_update_matches:
+            async for res in compiler.get_resources_matching(txn, match):
+                if res['zoid'] in done:
+                    continue
+                obj = await get_object_by_oid(res['zoid'], txn)
+                await compiler.apply_perms(txn, obj, rules)
+                done[obj._p_oid] = obj
+
     except:
         log.exception("error applying permissions")
         await tm.abort(txn=txn)
