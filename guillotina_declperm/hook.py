@@ -1,13 +1,15 @@
 from itertools import chain
 import logging
 
-from guillotina import app_settings, configure
+from guillotina import configure
 from guillotina.interfaces import (IResource, IObjectAddedEvent,
                                    IObjectModifiedEvent, IObjectRemovedEvent)
 from guillotina.utils import get_current_request, navigate_to
 from guillotina.transactions import get_tm
 from guillotina.db.reader import reader
 from guillotina.db.transaction import HARD_CACHE
+
+from .utils import get_rules
 
 from . import compiler
 
@@ -31,10 +33,6 @@ async def load_res(result, txn):
     if result['parent_id']:
         obj.__parent__ = await get_object_by_oid(result['parent_id'], txn)
     return obj
-
-
-def get_rules():
-    return chain(*app_settings['permissions'].values())
 
 
 async def before_commit(txn):
@@ -87,6 +85,7 @@ async def after_commit(success, txn, added, modified, deleted):
         log.exception("error applying permissions")
         await tm.abort(txn=txn)
     else:
+        log.debug("applied permissions successfully")
         await tm.commit(txn=txn)
 
 
