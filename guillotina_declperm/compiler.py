@@ -1,5 +1,6 @@
 import itertools
 
+from guillotina import app_settings
 from guillotina.api.content import PermissionMap
 from guillotina.auth.role import global_roles, local_roles
 from guillotina.auth.users import ROOT_USER_ID
@@ -64,15 +65,37 @@ async def expand_expr(txn, obj, expr):
         if not expr.startswith('.'):
             raise NotImplemented(
                 "Only expressions starting with a '.' are supported")
-        attrname = expr[1:]
+
+        pipeline = iter(expr.split('|'))
+
+        attrname = next(pipeline)[1:]
         if '.' in attrname:
             raise NotImplemented("deep expressions")
         value = getattr(obj, attrname)
-        if isinstance(value, list):
-            # we assume items are strings. In a later version we should enforce
-            # it.
-            return value
-        return [value]
+
+        if not isinstance(value, list):
+            value = [value]
+
+        for processor in pipeline:
+            processor = app_settings['permissions_processor'].get(processor)
+            if not processor:
+                raise ValueError("Invalid processor: %s")
+            result = []
+
+            for v in value:
+                r = await processor(txn, v)
+                if isinstance(r, list):
+                    result.expand(r)
+                elif isinstance(r, str):
+                    result.append(r)
+                elif r is None:
+                    pass
+                else:
+                    raise ValueError("Invalid expanded value: %s", r)
+
+            value = result
+
+        return value
     else:
         return [expr]
 
