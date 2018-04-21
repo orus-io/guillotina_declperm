@@ -49,6 +49,37 @@ def need_reverse_update(obj, rules):
         ]))
 
 
+async def expand_mustaches(txn, obj, expr):
+    pipeline = iter(expr.split('|'))
+
+    attrname = next(pipeline)[1:]
+    if '.' in attrname:
+        raise NotImplemented("deep expressions")
+    value = getattr(obj, attrname)
+
+    if not isinstance(value, list):
+        value = [value]
+
+    for processor in pipeline:
+        processor = app_settings['permissions_processor'].get(processor)
+        if not processor:
+            raise ValueError("Invalid processor: %s")
+        result = []
+
+        for v in value:
+            r = await processor(txn, v)
+            if isinstance(r, list):
+                result.expand(r)
+            elif isinstance(r, str):
+                result.append(r)
+            elif r is None:
+                pass
+            else:
+                raise ValueError("Invalid expanded value: %s", r)
+
+        value = result
+
+
 async def expand_expr(txn, obj, expr):
     if isinstance(expr, list):
         r = list(
@@ -66,36 +97,7 @@ async def expand_expr(txn, obj, expr):
             raise NotImplemented(
                 "Only expressions starting with a '.' are supported")
 
-        pipeline = iter(expr.split('|'))
-
-        attrname = next(pipeline)[1:]
-        if '.' in attrname:
-            raise NotImplemented("deep expressions")
-        value = getattr(obj, attrname)
-
-        if not isinstance(value, list):
-            value = [value]
-
-        for processor in pipeline:
-            processor = app_settings['permissions_processor'].get(processor)
-            if not processor:
-                raise ValueError("Invalid processor: %s")
-            result = []
-
-            for v in value:
-                r = await processor(txn, v)
-                if isinstance(r, list):
-                    result.expand(r)
-                elif isinstance(r, str):
-                    result.append(r)
-                elif r is None:
-                    pass
-                else:
-                    raise ValueError("Invalid expanded value: %s", r)
-
-            value = result
-
-        return value
+        return expand_mustaches(txt, obj, expr)
     else:
         return [expr]
 
