@@ -49,6 +49,32 @@ def need_reverse_update(obj, rules):
         ]))
 
 
+def parse_str_expr(expr):
+    buf = ""
+    in_mustaches = False
+    for c in expr:
+        if in_mustaches:
+            if c == '}':
+                yield buf, True
+                in_mustaches = False
+                buf = ""
+            else:
+                buf += c
+        else:
+            if c == '{':
+                if buf:
+                    yield buf, False
+                    buf = ""
+                in_mustaches = True
+            else:
+                buf += c
+
+    if in_mustaches:
+        raise ValueError("missing } in expr: '%s'" % expr)
+    if buf:
+        yield buf, False
+
+
 async def expand_mustaches(txn, obj, expr):
     pipeline = iter(expr.split('|'))
 
@@ -78,6 +104,7 @@ async def expand_mustaches(txn, obj, expr):
                 raise ValueError("Invalid expanded value: %s", r)
 
         value = result
+    return value
 
 
 async def expand_expr(txn, obj, expr):
@@ -85,21 +112,35 @@ async def expand_expr(txn, obj, expr):
         r = list(
             itertools.chain(*[ await expand_expr(txn, obj, e) for e in expr]))
         return r
+
     if isinstance(expr, dict):
         expanded = []
         async for res in get_resources_matching(txn, expr['match']):
             res = txn._fill_object(res, None)
             expanded.extend(await expand_expr(txn, res, expr['expr']))
         return expanded
-    if expr.startswith('{') and expr.endswith('}'):
-        expr = expr[1:-1]
-        if not expr.startswith('.'):
-            raise NotImplemented(
-                "Only expressions starting with a '.' are supported")
 
-        return expand_mustaches(txt, obj, expr)
-    else:
-        return [expr]
+    if isinstance(expr, str):
+        value = []
+        # find all expressions between {} and expand them
+        for token, expand in parse_str_expr(expr):
+            if expand:
+                expanded = await expand_mustaches(txn, obj, token)
+                log.debug('expanded: %s', expanded)
+
+                if value:
+                    value = [v + exp for exp in expanded for v in value]
+                else:
+                    value = [exp for exp in expanded]
+            else:
+                if not value:
+                    value = [token]
+                else:
+                    value = [v + token for v in value]
+
+        return value
+
+    raise ValueError("Invalid expression: %s", expr)
 
 
 async def expand_rule(txn, obj, sharing):
