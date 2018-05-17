@@ -90,10 +90,10 @@ async def after_commit(success, txn, added, modified, deleted):
 
 
 def getHook(txn):
-    if getattr(txn, 'guillotina_declperm_marker', False):
-        return
+    for hook, _, _ in txn._before_commit:
+        if hook == before_commit:
+            return
 
-    txn.guillotina_declperm_marker = True
     txn.add_before_commit_hook(before_commit, txn)
 
 
