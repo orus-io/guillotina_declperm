@@ -83,6 +83,9 @@ async def expand_mustaches(txn, obj, expr):
         raise NotImplemented("deep expressions")
     value = getattr(obj, attrname)
 
+    if value is None:
+        value = []
+
     if not isinstance(value, list):
         value = [value]
 
