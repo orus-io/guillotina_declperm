@@ -161,11 +161,11 @@ async def expand_rule(txn, obj, sharing):
                     })
 
     for prinperm in sharing.get('prinperm', ()):
-        for principal in await expand_expr(txn, obj, prinrole['principal']):
+        for principal in await expand_expr(txn, obj, prinperm['principal']):
             for permission in await expand_expr(txn, obj,
-                                                prinrole['permission']):
+                                                prinperm['permission']):
                 for setting in await expand_expr(txn, obj,
-                                                 prinrole['setting']):
+                                                 prinperm['setting']):
                     res['prinperm'].append({
                         "principal": principal,
                         "permission": permission,
