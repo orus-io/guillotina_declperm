@@ -14,9 +14,11 @@ log = logging.getLogger(__name__)
     context=IResource,
     name="@recalc_sharing",
     method="POST",
-    permission="guillotina.ChangePermissions")
+    permission="guillotina.ChangePermissions",
+)
 class Login(Service):
     async def __call__(self):
-        await compiler.apply_perms(self.request._txn, self.context,
-                                   get_rules())
+        await compiler.apply_perms(
+            self.request._txn, self.context, get_rules()
+        )
         return {}
