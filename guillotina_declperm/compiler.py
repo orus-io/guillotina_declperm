@@ -82,9 +82,24 @@ async def expand_mustaches(txn, obj, expr):
         value = [obj]
     else:
         attrname = attr[1:]
+
+        if attrname.startswith("("):
+            ipath = attrname[1 : attrname.index(")")].split(".")
+            module = __import__(".".join(ipath[:-1]), fromlist=[ipath[-1]])
+            interface = getattr(module, ipath[-1])
+            obj = interface(obj)
+            attrname = attrname[attrname.index(")") + 1 :]
+
+            # Preserve ability to pass interface directly
+            if attrname.startswith("."):
+                attrname = attrname[1:]
+
         if "." in attrname:
             raise NotImplementedError("deep expressions")
-        value = getattr(obj, attrname)
+        if attrname:
+            value = getattr(obj, attrname)
+        else:  # in this case interface is passed
+            value = [obj]
 
     if value is None:
         value = []
