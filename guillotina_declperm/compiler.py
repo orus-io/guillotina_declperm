@@ -77,10 +77,14 @@ def parse_str_expr(expr):
 async def expand_mustaches(txn, obj, expr):
     pipeline = iter(expr.split("|"))
 
-    attrname = next(pipeline)[1:]
-    if "." in attrname:
-        raise NotImplementedError("deep expressions")
-    value = getattr(obj, attrname)
+    attr = next(pipeline)
+    if attr == ".":
+        value = [obj]
+    else:
+        attrname = attr[1:]
+        if "." in attrname:
+            raise NotImplementedError("deep expressions")
+        value = getattr(obj, attrname)
 
     if value is None:
         value = []
