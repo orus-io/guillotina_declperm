@@ -1,25 +1,28 @@
-from itertools import chain
 import logging
+from itertools import chain
 
 from guillotina import configure
-from guillotina.interfaces import (IResource, IObjectAddedEvent,
-                                   IObjectModifiedEvent, IObjectRemovedEvent)
-from guillotina.utils import get_current_request, navigate_to
-from guillotina.transactions import get_tm
 from guillotina.db.reader import reader
 from guillotina.db.transaction import HARD_CACHE
-
-from .utils import get_rules
+from guillotina.interfaces import (
+    IObjectAddedEvent,
+    IObjectModifiedEvent,
+    IObjectRemovedEvent,
+    IResource
+)
+from guillotina.transactions import get_tm
+from guillotina.utils import get_current_request
 
 from . import compiler
+from .utils import get_rules
 
 log = logging.getLogger(__name__)
 
 
 async def get_object_by_oid(oid, txn):
-    '''
+    """
      Need to do a reverse lookup of the object to all the parents
-     '''
+     """
     result = HARD_CACHE.get(oid, None)
     if result is None:
         result = await txn._get(oid)
@@ -30,16 +33,18 @@ async def get_object_by_oid(oid, txn):
 async def load_res(result, txn):
     obj = reader(result)
     obj._p_jar = txn
-    if result['parent_id']:
-        obj.__parent__ = await get_object_by_oid(result['parent_id'], txn)
+    if result["parent_id"]:
+        obj.__parent__ = await get_object_by_oid(result["parent_id"], txn)
     return obj
 
 
 async def before_commit(txn):
     # gather all added/modified objects, and removed ones.
-    added, modified, deleted = (list(txn.added.values()),
-                                list(txn.modified.values()),
-                                list(txn.deleted.values()))
+    added, modified, deleted = (
+        list(txn.added.values()),
+        list(txn.modified.values()),
+        list(txn.deleted.values()),
+    )
     # register the post_commit hook if necessary
     if added or modified or deleted:
         txn.add_after_commit_hook(after_commit, txn, added, modified, deleted)
@@ -54,10 +59,12 @@ async def after_commit(success, txn, added, modified, deleted):
     need_update = added + modified
 
     reverse_update_matches = []
-    for m in chain(*[
+    for m in chain(
+        *[
             compiler.need_reverse_update(obj, rules)
             for obj in (added + modified + deleted)
-    ]):
+        ]
+    ):
         if m not in reverse_update_matches:
             reverse_update_matches.append(m)
 
@@ -75,13 +82,13 @@ async def after_commit(success, txn, added, modified, deleted):
 
         for match in reverse_update_matches:
             async for res in compiler.get_resources_matching(txn, match):
-                if res['zoid'] in done:
+                if res["zoid"] in done:
                     continue
-                obj = await get_object_by_oid(res['zoid'], txn)
+                obj = await get_object_by_oid(res["zoid"], txn)
                 await compiler.apply_perms(txn, obj, rules)
                 done[obj._p_oid] = obj
 
-    except:
+    except Exception:
         log.exception("error applying permissions")
         await tm.abort(txn=txn)
     else:
