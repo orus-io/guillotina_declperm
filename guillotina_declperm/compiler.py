@@ -98,7 +98,7 @@ async def expand_mustaches(txn, obj, expr):
         for v in value:
             r = await processor(txn, v)
             if isinstance(r, list):
-                result.expand(r)
+                result.extend(r)
             elif isinstance(r, str):
                 result.append(r)
             elif r is None:
